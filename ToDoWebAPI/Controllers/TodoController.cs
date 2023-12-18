@@ -1,10 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using RabbitMQ.Client;
 using ToDoWebAPI.Models;
 
 namespace ToDoWebAPI.Controllers
@@ -42,13 +39,27 @@ namespace ToDoWebAPI.Controllers
 
         [HttpPut]
         [Route("{id:Guid}")]
-        public async Task<IActionResult> UpdateTodo([FromRoute] Guid id, Todo todoUpdateRequest)
+        public async Task<IActionResult> UpdateTodo([FromRoute] Guid id,
+        Todo todoUpdateRequest, [FromServices] IModel rabbitMQChannel)
         {
             var todo = await _todoDbContext.Todos.FindAsync(id);
             if (todo is null) return NotFound();
             todo.IsCompleted = todoUpdateRequest.IsCompleted;
             todo.CompletedDate = DateTime.Now;
             await _todoDbContext.SaveChangesAsync();
+
+            if (todoUpdateRequest.IsCompleted)
+            {
+                // Convert your message to a byte array (example assumes message is a string)
+                var messageBytes = Encoding.UTF8.GetBytes($"TodoCompletedEvent: {id}");
+
+                // Publish the message to the exchange
+                rabbitMQChannel.BasicPublish(exchange: "my_direct_exchange",
+                                             routingKey: "",
+                                             basicProperties: null,
+                                             body: messageBytes);
+            }
+
             return Ok(todo);
         }
 
@@ -75,7 +86,7 @@ namespace ToDoWebAPI.Controllers
                 .ToListAsync();
             return Ok(todos);
         }
-        
+
         [HttpPut]
         [Route("undo-deleted-todo/{id:Guid}")]
         public async Task<IActionResult> UndoDeletedTodo([FromRoute] Guid id, Todo undoDeleteRequest)
