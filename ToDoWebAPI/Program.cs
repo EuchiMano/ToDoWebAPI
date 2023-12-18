@@ -1,4 +1,6 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
+using RabbitMQ.Client;
 using ToDoWebAPI.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,7 +13,24 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<TodoDbContext>(opt =>
     opt.UseSqlite(builder.Configuration.GetConnectionString("TodoDbConnectionString")));
+builder.Services.AddMediatR(typeof(Program).Assembly);
+builder.Services.AddSingleton<IConnection>(sp =>
+{
+    var factory = new ConnectionFactory
+    {
+        HostName = "localhost",
+        UserName = "guest",
+        Password = "guest"
+    };
+    return factory.CreateConnection();
+});
 
+builder.Services.AddSingleton<IModel>(sp =>
+{
+    var connection = sp.GetRequiredService<IConnection>();
+    var channel = connection.CreateModel();
+    return channel;
+});
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
