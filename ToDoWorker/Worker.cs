@@ -1,17 +1,13 @@
-using MediatR;
-
 namespace ToDoWorker;
 
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
-    private readonly IMediator _mediator;
     private readonly RabbitMQConsumer _rabbitMQConsumer;
 
-    public Worker(ILogger<Worker> logger, IMediator mediator, RabbitMQConsumer rabbitMQConsumer)
+    public Worker(ILogger<Worker> logger, RabbitMQConsumer rabbitMQConsumer)
     {
         _logger = logger;
-        _mediator = mediator;
         _rabbitMQConsumer = rabbitMQConsumer;
     }
 

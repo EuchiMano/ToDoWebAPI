@@ -1,3 +1,4 @@
+using System;
 namespace ToDoWebAPI.Models;
 
 public class Todo
@@ -7,6 +8,24 @@ public class Todo
     public DateTime CreationDate { get; set; }
     public bool IsCompleted { get; set; }
     public DateTime? CompletedDate { get; set; }
+    public TimeSpan? CompletedDuration { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime? DeletedDate { get; set; }
+    public TodoInfo Info { get; set; }
+
+    public void CheckIfIsCompleted(bool isCompleted)
+    {
+        IsCompleted = isCompleted;
+        if (IsCompleted)
+        {
+            CompletedDate = DateTime.UtcNow;
+            CompletedDuration = CompletedDate - CreationDate;
+        }
+    }
+}
+
+public class TodoInfo
+{
+    public string BadgePath { get; set; }
+    public string ReportPath { get; set; }
 }

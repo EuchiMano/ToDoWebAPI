@@ -1,7 +1,10 @@
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 using RabbitMQ.Client;
+using ToDoWebAPI.Dtos;
+using ToDoWebAPI.Messages;
 using ToDoWebAPI.Models;
 
 namespace ToDoWebAPI.Controllers
@@ -28,30 +31,38 @@ namespace ToDoWebAPI.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> AddTodo(Todo todo)
+        public async Task<IActionResult> AddTodo(TodoPostDto todoPost)
         {
-            todo.Id = Guid.NewGuid();
-            _todoDbContext.Todos.Add(todo);
+            var newTodo = new Todo{
+                Id = todoPost.Id,
+                Description = todoPost.Description,
+                CreationDate = todoPost.CreationDate,
+                IsCompleted = todoPost.IsCompleted
+            };
+            _todoDbContext.Todos.Add(newTodo);
             await _todoDbContext.SaveChangesAsync();
-
-            return Ok(todo);
+            return Ok(todoPost);
         }
 
         [HttpPut]
         [Route("{id:Guid}")]
         public async Task<IActionResult> UpdateTodo([FromRoute] Guid id,
-        Todo todoUpdateRequest, [FromServices] IModel rabbitMQChannel)
+        TodoUpdateDto todoUpdateRequest, [FromServices] IModel rabbitMQChannel)
         {
             var todo = await _todoDbContext.Todos.FindAsync(id);
             if (todo is null) return NotFound();
-            todo.IsCompleted = todoUpdateRequest.IsCompleted;
-            todo.CompletedDate = DateTime.Now;
+            todo.CheckIfIsCompleted(todoUpdateRequest.IsCompleted);
             await _todoDbContext.SaveChangesAsync();
 
             if (todoUpdateRequest.IsCompleted)
             {
-                // Convert your message to a byte array (example assumes message is a string)
-                var messageBytes = Encoding.UTF8.GetBytes($"TodoCompletedEvent: {id}");
+                var todoCompletedEvent = new TodoCompletedMessage
+                {
+                    TodoId = id
+                };
+
+                // Serialize the message to a byte array (example assumes JSON serialization)
+                var messageBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(todoCompletedEvent));
 
                 // Publish the message to the exchange
                 rabbitMQChannel.BasicPublish(exchange: "my_direct_exchange",
@@ -60,6 +71,22 @@ namespace ToDoWebAPI.Controllers
                                              body: messageBytes);
             }
 
+            return Ok(todo);
+        }
+
+        [HttpPut]
+        [Route("update-badge")]
+        public async Task<IActionResult> UpdateTodoBadge(UpdateTodoBadgeDto todoUpdateRequest)
+        {
+            var todo = await _todoDbContext.Todos.FindAsync(todoUpdateRequest.TodoId);
+
+            if (todo == null)
+            {
+                return NotFound();
+            }
+
+            todo.Info.BadgePath = todoUpdateRequest.BadgeUrl;
+            await _todoDbContext.SaveChangesAsync();
             return Ok(todo);
         }
 
