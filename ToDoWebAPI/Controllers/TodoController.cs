@@ -1,4 +1,5 @@
 using System.Text;
+using AutoMapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
@@ -14,34 +15,34 @@ namespace ToDoWebAPI.Controllers
     public class TodoController : ControllerBase
     {
         private readonly TodoDbContext _todoDbContext;
+        private readonly IMapper _mapper;
 
-        public TodoController(TodoDbContext todoDbContext)
+        public TodoController(TodoDbContext todoDbContext,
+            IMapper mapper)
         {
             _todoDbContext = todoDbContext;
+            _mapper = mapper;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetAllTodos()
         {
-            var todos = await _todoDbContext.Todos
+            var todosFound = await _todoDbContext.Todos
                 .Where(x => x.IsDeleted == false)
                 .OrderByDescending(x => x.CreationDate)
                 .ToListAsync();
-            return Ok(todos);
+            return Ok(_mapper.Map<List<TodoGetAllResponse>>(todosFound));
         }
 
         [HttpPost]
         public async Task<IActionResult> AddTodo(TodoPostDto todoPost)
         {
-            var newTodo = new Todo{
-                Id = todoPost.Id,
-                Description = todoPost.Description,
-                CreationDate = todoPost.CreationDate,
-                IsCompleted = todoPost.IsCompleted
-            };
+            var newTodo = new Todo();
+            newTodo.CreateNewTodo(todoPost.Description);
+            newTodo.CheckIfIsCompleted(todoPost.IsCompleted);
             _todoDbContext.Todos.Add(newTodo);
             await _todoDbContext.SaveChangesAsync();
-            return Ok(todoPost);
+            return Ok(_mapper.Map<TodoGetResponse>(newTodo));
         }
 
         [HttpPut]
@@ -53,8 +54,13 @@ namespace ToDoWebAPI.Controllers
             if (todo is null) return NotFound();
             todo.CheckIfIsCompleted(todoUpdateRequest.IsCompleted);
             await _todoDbContext.SaveChangesAsync();
+            PublishTodoCompletedMessage(id, todoUpdateRequest.IsCompleted, rabbitMQChannel);
+            return Ok(_mapper.Map<TodoGetResponse>(todo));
+        }
 
-            if (todoUpdateRequest.IsCompleted)
+        private void PublishTodoCompletedMessage(Guid id, bool isCompleted, IModel rabbitMQChannel)
+        {
+            if (isCompleted)
             {
                 var todoCompletedEvent = new TodoCompletedMessage
                 {
@@ -70,8 +76,6 @@ namespace ToDoWebAPI.Controllers
                                              basicProperties: null,
                                              body: messageBytes);
             }
-
-            return Ok(todo);
         }
 
         [HttpPut]
@@ -87,7 +91,7 @@ namespace ToDoWebAPI.Controllers
 
             todo.Info.BadgePath = todoUpdateRequest.BadgeUrl;
             await _todoDbContext.SaveChangesAsync();
-            return Ok(todo);
+            return Ok(_mapper.Map<TodoGetResponse>(todo));
         }
 
         [HttpDelete]
@@ -100,7 +104,7 @@ namespace ToDoWebAPI.Controllers
             todo.DeletedDate = DateTime.Now;
 
             await _todoDbContext.SaveChangesAsync();
-            return Ok(todo);
+            return Ok(todo.Id);
         }
 
         [HttpGet]
@@ -111,7 +115,7 @@ namespace ToDoWebAPI.Controllers
                 .Where(x => x.IsDeleted == true)
                 .OrderByDescending(x => x.CreationDate)
                 .ToListAsync();
-            return Ok(todos);
+            return Ok(_mapper.Map<List<TodoGetResponse>>(todos));
         }
 
         [HttpPut]
@@ -123,7 +127,16 @@ namespace ToDoWebAPI.Controllers
             todo.DeletedDate = null;
             todo.IsDeleted = false;
             await _todoDbContext.SaveChangesAsync();
-            return Ok(todo);
+            return Ok(_mapper.Map<TodoGetResponse>(todo));
+        }
+
+        [HttpGet]
+        [Route("{id:Guid}")]
+        public async Task<IActionResult> GetTodoById([FromRoute] Guid id)
+        {
+            var todoFound = await _todoDbContext.Todos.FindAsync(id);
+            if (todoFound is null) return NotFound();
+            return Ok(_mapper.Map<TodoGetResponse>(todoFound));
         }
     }
 }

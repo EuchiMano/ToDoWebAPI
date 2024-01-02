@@ -1,6 +1,6 @@
-using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
+using ToDoWebAPI;
 using ToDoWebAPI.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,7 +13,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<TodoDbContext>(opt =>
     opt.UseSqlite(builder.Configuration.GetConnectionString("TodoDbConnectionString")));
-builder.Services.AddMediatR(typeof(Program).Assembly);
+builder.Services.AddAutoMapper(typeof(MappingProfile));
 builder.Services.AddSingleton<IConnection>(sp =>
 {
     var factory = new ConnectionFactory

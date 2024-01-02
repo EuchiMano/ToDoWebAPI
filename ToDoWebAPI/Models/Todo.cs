@@ -21,6 +21,18 @@ public class Todo
             CompletedDate = DateTime.UtcNow;
             CompletedDuration = CompletedDate - CreationDate;
         }
+        else
+        {
+            CompletedDate = null;
+            CompletedDuration = null;
+        }
+    }
+
+    public void CreateNewTodo(string description)
+    {
+        Id = Guid.NewGuid();
+        Description = description;
+        CreationDate = DateTime.UtcNow;
     }
 }
 
