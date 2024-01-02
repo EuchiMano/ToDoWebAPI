@@ -1,7 +1,11 @@
 using System.Text;
+using AutoMapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 using RabbitMQ.Client;
+using ToDoWebAPI.Dtos;
+using ToDoWebAPI.Messages;
 using ToDoWebAPI.Models;
 
 namespace ToDoWebAPI.Controllers
@@ -11,47 +15,60 @@ namespace ToDoWebAPI.Controllers
     public class TodoController : ControllerBase
     {
         private readonly TodoDbContext _todoDbContext;
+        private readonly IMapper _mapper;
 
-        public TodoController(TodoDbContext todoDbContext)
+        public TodoController(TodoDbContext todoDbContext,
+            IMapper mapper)
         {
             _todoDbContext = todoDbContext;
+            _mapper = mapper;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetAllTodos()
         {
-            var todos = await _todoDbContext.Todos
+            var todosFound = await _todoDbContext.Todos
                 .Where(x => x.IsDeleted == false)
                 .OrderByDescending(x => x.CreationDate)
                 .ToListAsync();
-            return Ok(todos);
+            return Ok(_mapper.Map<List<TodoGetAllResponse>>(todosFound));
         }
 
         [HttpPost]
-        public async Task<IActionResult> AddTodo(Todo todo)
+        public async Task<IActionResult> AddTodo(TodoPostDto todoPost)
         {
-            todo.Id = Guid.NewGuid();
-            _todoDbContext.Todos.Add(todo);
+            var newTodo = new Todo();
+            newTodo.CreateNewTodo(todoPost.Description);
+            newTodo.CheckIfIsCompleted(todoPost.IsCompleted);
+            _todoDbContext.Todos.Add(newTodo);
             await _todoDbContext.SaveChangesAsync();
-
-            return Ok(todo);
+            return Ok(_mapper.Map<TodoGetResponse>(newTodo));
         }
 
         [HttpPut]
         [Route("{id:Guid}")]
         public async Task<IActionResult> UpdateTodo([FromRoute] Guid id,
-        Todo todoUpdateRequest, [FromServices] IModel rabbitMQChannel)
+        TodoUpdateDto todoUpdateRequest, [FromServices] IModel rabbitMQChannel)
         {
             var todo = await _todoDbContext.Todos.FindAsync(id);
             if (todo is null) return NotFound();
-            todo.IsCompleted = todoUpdateRequest.IsCompleted;
-            todo.CompletedDate = DateTime.Now;
+            todo.CheckIfIsCompleted(todoUpdateRequest.IsCompleted);
             await _todoDbContext.SaveChangesAsync();
+            PublishTodoCompletedMessage(id, todoUpdateRequest.IsCompleted, rabbitMQChannel);
+            return Ok(_mapper.Map<TodoGetResponse>(todo));
+        }
 
-            if (todoUpdateRequest.IsCompleted)
+        private void PublishTodoCompletedMessage(Guid id, bool isCompleted, IModel rabbitMQChannel)
+        {
+            if (isCompleted)
             {
-                // Convert your message to a byte array (example assumes message is a string)
-                var messageBytes = Encoding.UTF8.GetBytes($"TodoCompletedEvent: {id}");
+                var todoCompletedEvent = new TodoCompletedMessage
+                {
+                    TodoId = id
+                };
+
+                // Serialize the message to a byte array (example assumes JSON serialization)
+                var messageBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(todoCompletedEvent));
 
                 // Publish the message to the exchange
                 rabbitMQChannel.BasicPublish(exchange: "my_direct_exchange",
@@ -59,8 +76,22 @@ namespace ToDoWebAPI.Controllers
                                              basicProperties: null,
                                              body: messageBytes);
             }
+        }
 
-            return Ok(todo);
+        [HttpPut]
+        [Route("update-badge")]
+        public async Task<IActionResult> UpdateTodoBadge(UpdateTodoBadgeDto todoUpdateRequest)
+        {
+            var todo = await _todoDbContext.Todos.FindAsync(todoUpdateRequest.TodoId);
+
+            if (todo == null)
+            {
+                return NotFound();
+            }
+
+            todo.Info.BadgePath = todoUpdateRequest.BadgeUrl;
+            await _todoDbContext.SaveChangesAsync();
+            return Ok(_mapper.Map<TodoGetResponse>(todo));
         }
 
         [HttpDelete]
@@ -73,7 +104,7 @@ namespace ToDoWebAPI.Controllers
             todo.DeletedDate = DateTime.Now;
 
             await _todoDbContext.SaveChangesAsync();
-            return Ok(todo);
+            return Ok(todo.Id);
         }
 
         [HttpGet]
@@ -84,7 +115,7 @@ namespace ToDoWebAPI.Controllers
                 .Where(x => x.IsDeleted == true)
                 .OrderByDescending(x => x.CreationDate)
                 .ToListAsync();
-            return Ok(todos);
+            return Ok(_mapper.Map<List<TodoGetResponse>>(todos));
         }
 
         [HttpPut]
@@ -96,7 +127,16 @@ namespace ToDoWebAPI.Controllers
             todo.DeletedDate = null;
             todo.IsDeleted = false;
             await _todoDbContext.SaveChangesAsync();
-            return Ok(todo);
+            return Ok(_mapper.Map<TodoGetResponse>(todo));
+        }
+
+        [HttpGet]
+        [Route("{id:Guid}")]
+        public async Task<IActionResult> GetTodoById([FromRoute] Guid id)
+        {
+            var todoFound = await _todoDbContext.Todos.FindAsync(id);
+            if (todoFound is null) return NotFound();
+            return Ok(_mapper.Map<TodoGetResponse>(todoFound));
         }
     }
 }
